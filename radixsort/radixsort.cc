@@ -5,6 +5,7 @@
 #include <cstring>
 #include <cstdint>
 #include <cassert>
+#include <sys/time.h>
 
 std::ostream &operator<<(std::ostream &out, const __m512i &v) {
   int32_t arr[16] = {0};
@@ -112,21 +113,41 @@ bool issorted(uint32_t *arr, uint32_t n) {
   return true;
 }
 
+static inline double timeval_to_sec(struct timeval &t) {
+  return t.tv_sec + 1e-6 * static_cast<double>(t.tv_usec);
+}
+
+static double timestamp() {
+  struct timeval t;
+  gettimeofday(&t, nullptr);
+  return timeval_to_sec(t);
+}
 
 int main(int argc, char *argv[]) {
-  uint32_t n = 1U<<20;
+  double t,ts,tv;
+  uint32_t n = 1U<<28;
   uint32_t *arr = new uint32_t[n];
   uint32_t *tmp = new uint32_t[n];
   for(uint32_t i = 0; i < n; i++) {
     arr[i] = i;
   }
+  std::cout << n << " keys\n";
   shuffle(arr, n);
-
+  t = timestamp();
   avx512_radixsort(arr, tmp, n);
-
+  tv = timestamp() - t;
   std::cout << "issorted() = " << issorted(arr, n) << "\n";
+  std::cout << "avx512 took " << tv << " seconds\n";
 
+  
   shuffle(arr, n);
+  t = timestamp();
+  scalar_radixsort(arr, tmp, n);
+  ts = timestamp() - t;
+  std::cout << "issorted() = " << issorted(arr, n) << "\n";
+  std::cout << "scalar took " << ts << " seconds\n";
+
+  std::cout << (ts/tv) << " speedup with avx512\n";
   
   delete [] arr;
   delete [] tmp;
