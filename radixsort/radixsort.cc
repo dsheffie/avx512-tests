@@ -49,6 +49,34 @@ void scalar_radixsort(uint32_t *arr, uint32_t *tmp, uint32_t n) {
   }
 }
 
+void scalar_radixsort_branchless(uint32_t *arr, uint32_t *tmp, uint32_t n) {
+  uint32_t *in = arr, *out = tmp;
+  uint32_t bb;
+  for(uint32_t i = 0; i < 32; i++) {
+    uint32_t ns = 0, off_s = 0, off_ns = 0;
+    /* count not-set bits */
+    for(uint32_t j = 0; j < n; j++) {
+      uint32_t b = (in[j] >> i) & 0x1;
+      ns += (b==0);
+    }
+    for(uint32_t j = 0; j < n; j++) {
+      uint32_t b = (in[j] >> i) & 0x1;
+      uint32_t *p_t = b ? &out[ns+off_s] : &bb;
+      uint32_t *p_f = b ? &bb : &out[off_ns];
+      *p_t = in[j];
+      *p_f = in[j];
+      off_s += (b ? 1 : 0);
+      off_ns += (b ? 0 : 1);
+    }
+    std::swap(in, out);
+  }
+
+  if(arr != in) {
+    memcpy(arr, in, sizeof(uint32_t)*n);
+  }
+}
+
+
 void avx512_radixsort_mask(uint32_t *arr, uint32_t *tmp, uint32_t n) {
   uint32_t *in = arr, *out = tmp;
   
@@ -192,6 +220,14 @@ int main(int argc, char *argv[]) {
   for(uint32_t i = 0; i < n; i++) {
     arr[i] = i;
   }
+  shuffle(arr, n);
+  t = timestamp();
+  scalar_radixsort_branchless(arr, tmp, n);
+  ts = timestamp() - t;
+  std::cout << "issorted() = " << issorted(arr, n) << "\n";
+  std::cout << "scalar took " << ts << " seconds\n";
+ 
+#if 1
   std::cout << n << " keys\n";
   shuffle(arr, n);
   t = timestamp();
@@ -207,14 +243,7 @@ int main(int argc, char *argv[]) {
   std::cout << "issorted() = " << issorted(arr, n) << "\n";
   std::cout << "avx512 (mask) took " << t << " seconds\n";
   
-  
-  shuffle(arr, n);
-  t = timestamp();
-  scalar_radixsort(arr, tmp, n);
-  ts = timestamp() - t;
-  std::cout << "issorted() = " << issorted(arr, n) << "\n";
-  std::cout << "scalar took " << ts << " seconds\n";
-  
+   
   std::cout << (ts/tv) << " speedup with avx512\n";
 
   shuffle(arr, n);
@@ -223,7 +252,7 @@ int main(int argc, char *argv[]) {
   std::sort(arr, arr+n);
   t = timestamp()-t;
   std::cout << "stl sort " << t << " seconds\n";
-  
+#endif  
   delete [] arr;
   delete [] tmp;
   return 0;
