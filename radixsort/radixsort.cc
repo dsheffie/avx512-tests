@@ -5,6 +5,7 @@
 #include <cstring>
 #include <cstdint>
 #include <cassert>
+#include <algorithm>
 #include <sys/time.h>
 
 std::ostream &operator<<(std::ostream &out, const __m512i &v) {
@@ -78,7 +79,7 @@ void avx512_radixsort(uint32_t *arr, uint32_t *tmp, uint32_t n) {
       v_b = _mm512_and_epi32(v_b, _mm512_set1_epi32(1));
 
       __mmask16 ks = _mm512_cmp_epi32_mask(v_b, _mm512_set1_epi32(1), _MM_CMPINT_EQ);
-      __mmask16 kc = _mm512_cmp_epi32_mask(v_b, _mm512_set1_epi32(0), _MM_CMPINT_EQ);      
+      __mmask16 kc = _mm512_cmp_epi32_mask(v_b, _mm512_set1_epi32(0), _MM_CMPINT_EQ);
       ks = _kand_mask16(k, ks);
       kc = _kand_mask16(k, kc);
 
@@ -99,9 +100,13 @@ void avx512_radixsort(uint32_t *arr, uint32_t *tmp, uint32_t n) {
 
 
 void shuffle(uint32_t *arr, uint32_t n) {
+  uint32_t x = 1;
   for(uint32_t i=0;i<n;i++) {
-    uint32_t j = i + rand() % (n-i);
+    uint32_t j = i + (x % (n-i));
     std::swap(arr[i], arr[j]);
+    x ^= x << 13;
+    x ^= x >> 17;
+    x ^= x << 5;
   }
 }
 
@@ -146,8 +151,15 @@ int main(int argc, char *argv[]) {
   ts = timestamp() - t;
   std::cout << "issorted() = " << issorted(arr, n) << "\n";
   std::cout << "scalar took " << ts << " seconds\n";
-
+  
   std::cout << (ts/tv) << " speedup with avx512\n";
+
+  shuffle(arr, n);
+  
+  t = timestamp();  
+  std::sort(arr, arr+n);
+  t = timestamp()-t;
+  std::cout << "stl sort " << t << " seconds\n";
   
   delete [] arr;
   delete [] tmp;
