@@ -49,7 +49,7 @@ void scalar_radixsort(uint32_t *arr, uint32_t *tmp, uint32_t n) {
   }
 }
 
-void avx512_radixsort(uint32_t *arr, uint32_t *tmp, uint32_t n) {
+void avx512_radixsort_mask(uint32_t *arr, uint32_t *tmp, uint32_t n) {
   uint32_t *in = arr, *out = tmp;
   
   for(uint32_t i = 0; i < 32; i++) {
@@ -88,6 +88,62 @@ void avx512_radixsort(uint32_t *arr, uint32_t *tmp, uint32_t n) {
 
       off_s  += __builtin_popcount(_mm512_mask2int(ks));
       off_ns += __builtin_popcount(_mm512_mask2int(kc));
+    }
+    std::swap(in, out);
+  }
+
+  if(arr != in) {
+    memcpy(arr, in, sizeof(uint32_t)*n);
+  }
+}
+
+void avx512_radixsort(uint32_t *arr, uint32_t *tmp, uint32_t n) {
+  uint32_t *in = arr, *out = tmp;
+  uint32_t n_vl = n - (n & 15);
+  assert(n_vl == n);
+  
+  for(uint32_t i = 0; i < 32; i++) {
+    uint32_t ns = 0, off_s = 0, off_ns = 0;
+    /* count not-set bits */
+    __m512i v_sum = _mm512_set1_epi32(0);
+    for(uint32_t j = 0; j < n_vl; j+= 16) {
+      __m512i v_in = _mm512_loadu_epi32(&in[j]);
+      v_in = _mm512_srl_epi32 (v_in, _mm_set1_epi64x(i));
+      v_in = _mm512_and_epi32(v_in, _mm512_set1_epi32(1));
+      v_sum =  _mm512_add_epi32(v_sum, v_in);
+    }
+    uint32_t ps = _mm512_reduce_add_epi32(v_sum);
+    for(uint32_t j = n_vl; j < n; j++) {
+      uint32_t b = (in[j] >> i) & 0x1;
+      ps += b;
+    }
+    ns = n - ps;
+    for(uint32_t j = 0; j < n_vl; j+=16) {
+      __m512i v_in = _mm512_loadu_epi32(&in[j]);      
+      
+      __m512i v_b = _mm512_srl_epi32 (v_in, _mm_set1_epi64x(i));
+      v_b = _mm512_and_epi32(v_b, _mm512_set1_epi32(1));
+
+      __mmask16 ks = _mm512_cmp_epi32_mask(v_b, _mm512_set1_epi32(1), _MM_CMPINT_EQ);
+      __mmask16 kc = _mm512_cmp_epi32_mask(v_b, _mm512_set1_epi32(0), _MM_CMPINT_EQ);
+
+      _mm512_mask_compressstoreu_epi32(&out[ns+off_s], ks, v_in);
+      _mm512_mask_compressstoreu_epi32(&out[off_ns], kc, v_in);
+
+      int s = __builtin_popcount(_mm512_mask2int(ks));
+      off_s  += s;
+      off_ns += (16-s);
+    }
+    for(uint32_t j = n_vl; j < n; j++) {
+      uint32_t b = (in[j] >> i) & 0x1;
+      if(b) {
+	out[ns+off_s] = in[j];
+	off_s++;
+      }
+      else {
+	out[off_ns] = in[j];
+	off_ns++;
+      }
     }
     std::swap(in, out);
   }
@@ -144,6 +200,13 @@ int main(int argc, char *argv[]) {
   std::cout << "issorted() = " << issorted(arr, n) << "\n";
   std::cout << "avx512 took " << tv << " seconds\n";
 
+  shuffle(arr, n);
+  t = timestamp();
+  avx512_radixsort_mask(arr, tmp, n);
+  t = timestamp() - t;
+  std::cout << "issorted() = " << issorted(arr, n) << "\n";
+  std::cout << "avx512 (mask) took " << t << " seconds\n";
+  
   
   shuffle(arr, n);
   t = timestamp();
