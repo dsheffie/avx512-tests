@@ -2,6 +2,30 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstdio>
+#include <iostream>
+#include <sys/time.h>
+
+std::ostream &operator<<(std::ostream &out, const __m512i &v) {
+  int32_t arr[16] = {~0};
+  _mm512_storeu_epi32(arr, v);
+  for(int i = 0; i < 16; i++) {
+    out << arr[i];
+    if(i != 15)
+      out << ",";
+  }
+  return out;
+}
+std::ostream &operator<<(std::ostream &out, const __m512 &v) {
+  float arr[16] = {0.0};
+  _mm512_storeu_ps(arr, v);
+  for(int i = 0; i < 16; i++) {
+    out << arr[i];
+    if(i != 15)
+      out << ",";
+  }
+  return out;
+}
+
 
 void scalar_mandelbrot(uint32_t ydim, uint32_t xdim, uint32_t *img, uint32_t maxiter = 256) {
   const float x0 = -2.0f, x1 = 1.0f;
@@ -16,8 +40,10 @@ void scalar_mandelbrot(uint32_t ydim, uint32_t xdim, uint32_t *img, uint32_t max
       float z_re = xx, z_im = yy;
       uint32_t k;
       for (k = 0; k < maxiter; ++k) {
-        if (z_re * z_re + z_im * z_im > 4.)
+	float d = z_re * z_re + z_im * z_im;
+        if (d > 4.0f) {
 	  break;
+	}
         float new_re = z_re*z_re - z_im*z_im;
         float new_im = 2.f * z_re * z_im;
         z_re = xx + new_re;
@@ -26,6 +52,8 @@ void scalar_mandelbrot(uint32_t ydim, uint32_t xdim, uint32_t *img, uint32_t max
       img[y*xdim+x] = k;
     }
   }
+ done:
+  return;
 }
 
 void avx512_mandelbrot(uint32_t ydim, uint32_t xdim, uint32_t *img, uint32_t maxiter = 256) {
@@ -51,7 +79,6 @@ void avx512_mandelbrot(uint32_t ydim, uint32_t xdim, uint32_t *img, uint32_t max
     for(uint32_t x = 0; x < xdim; x+=VL) {
       float xx = x0 + x * dx;
       __m512 v_xx = _mm512_add_ps(v_x0, _mm512_mul_ps(v_x, v_dx));
-      v_x = _mm512_add_ps(v_x, _mm512_set1_ps(1.0f));
 
       __m512i v_k = _mm512_set1_epi32(0);
       __m512 v_z_re = v_xx, v_z_im =  v_yy;
@@ -63,7 +90,7 @@ void avx512_mandelbrot(uint32_t ydim, uint32_t xdim, uint32_t *img, uint32_t max
 
 	__mmask16 p = _mm512_cmp_ps_mask(v_dist, _mm512_set1_ps(4.0f), _MM_CMPINT_LT);
 	/* no active lanes */
-	if(__builtin_popcount(_mm512_mask2int(p)) == 0) {
+	if(_mm512_mask2int(p) == 0) {
 	  break;
 	}
 	__m512 v_new_re = _mm512_sub_ps(v_z_re2, v_z_im2);
@@ -73,6 +100,7 @@ void avx512_mandelbrot(uint32_t ydim, uint32_t xdim, uint32_t *img, uint32_t max
 	v_k = _mm512_mask_add_epi32(v_k, p, v_k, _mm512_set1_epi32(1));
       }
       _mm512_storeu_epi32(&img[y*xdim+x], v_k);
+      v_x = _mm512_add_ps(v_x, _mm512_set1_ps(16.0f));      
     }
   }
 }
@@ -98,13 +126,40 @@ static void writePPM(uint32_t *buf, uint32_t width, uint32_t height, const char 
     fclose(fp);
 }
 
+static inline double timeval_to_sec(struct timeval &t) {
+  return t.tv_sec + 1e-6 * static_cast<double>(t.tv_usec);
+}
+
+static double timestamp() {
+  struct timeval t;
+  gettimeofday(&t, nullptr);
+  return timeval_to_sec(t);
+}
+
+
 int main(int argc, char *argv[]) {
   uint32_t ydim = 1024, xdim = 1024;
-  uint32_t *img = new uint32_t[ydim*xdim];
+  uint32_t *scalar_img = new uint32_t[ydim*xdim];
+  uint32_t *avx512_img = new uint32_t[ydim*xdim];  
 
-  avx512_mandelbrot(ydim, xdim, img);
-  writePPM(img, xdim, ydim, "avx512.ppm");
+  double t0,t1;
+  t0 = timestamp();
+  scalar_mandelbrot(ydim, xdim, scalar_img);
+  t0 = timestamp() - t0;
+
+  t1 = timestamp();
+  avx512_mandelbrot(ydim, xdim, avx512_img);
+  t1 = timestamp() - t1;
   
-  delete [] img;
+  writePPM(scalar_img, xdim, ydim, "avx512.ppm");
+  writePPM(avx512_img, xdim, ydim, "scalar.ppm");
+
+  std::cout << "scalar  = " << t0 << " sec\n";
+  std::cout << "avx512  = " << t1 << " sec\n";
+
+  std::cout << "speedup = " << (t0/t1) << "x\n";
+  
+  delete [] scalar_img;
+  delete [] avx512_img;
   return 0;
 }
