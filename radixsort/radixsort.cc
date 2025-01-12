@@ -51,7 +51,7 @@ void scalar_radixsort(uint32_t *arr, uint32_t *tmp, uint32_t n) {
 
 void scalar_radixsort_branchless(uint32_t *arr, uint32_t *tmp, uint32_t n) {
   uint32_t *in = arr, *out = tmp;
-  uint32_t bb;
+  uint32_t bb0, bb1;
   for(uint32_t i = 0; i < 32; i++) {
     uint32_t ns = 0, off_s = 0, off_ns = 0;
     /* count not-set bits */
@@ -59,10 +59,11 @@ void scalar_radixsort_branchless(uint32_t *arr, uint32_t *tmp, uint32_t n) {
       uint32_t b = (in[j] >> i) & 0x1;
       ns += (b==0);
     }
+#pragma clang loop vectorize(disable)
     for(uint32_t j = 0; j < n; j++) {
       uint32_t b = (in[j] >> i) & 0x1;
-      uint32_t *p_t = b ? &out[ns+off_s] : &bb;
-      uint32_t *p_f = b ? &bb : &out[off_ns];
+      uint32_t *p_t = b ? &out[ns+off_s] : &bb1;
+      uint32_t *p_f = b ? &bb0 : &out[off_ns];
       *p_t = in[j];
       *p_f = in[j];
       off_s += (b ? 1 : 0);
