@@ -68,9 +68,8 @@ void avx512_mandelbrot(uint32_t ydim, uint32_t xdim, uint32_t *img, uint32_t max
 			       7.0f,6.0f,5.0f,4,
 			       3.0f,2.0f,1.0f,0.0f);
 
-  __m512 v_dx = _mm512_set1_ps(dx);
-  __m512 v_x0 = _mm512_set1_ps(x0);
-  
+  const __m512 v_dx = _mm512_set1_ps(dx);
+  const __m512 v_x0 = _mm512_set1_ps(x0);
   for(uint32_t y = 0; y < ydim; y++) {
     float yy = y0 + y * dy;
     __m512 v_yy = _mm512_set1_ps(yy);
@@ -138,7 +137,7 @@ static double timestamp() {
 
 
 int main(int argc, char *argv[]) {
-  uint32_t ydim = 1024, xdim = 1024;
+  uint32_t ydim = (1U<<15), xdim = (1U<<15);
   uint32_t *scalar_img = new uint32_t[ydim*xdim];
   uint32_t *avx512_img = new uint32_t[ydim*xdim];  
 
@@ -150,14 +149,13 @@ int main(int argc, char *argv[]) {
   t1 = timestamp();
   avx512_mandelbrot(ydim, xdim, avx512_img);
   t1 = timestamp() - t1;
-  
-  writePPM(scalar_img, xdim, ydim, "avx512.ppm");
-  writePPM(avx512_img, xdim, ydim, "scalar.ppm");
 
   std::cout << "scalar  = " << t0 << " sec\n";
   std::cout << "avx512  = " << t1 << " sec\n";
-
   std::cout << "speedup = " << (t0/t1) << "x\n";
+  
+  writePPM(scalar_img, xdim, ydim, "scalar.ppm");
+  writePPM(avx512_img, xdim, ydim, "avx512.ppm");
   
   delete [] scalar_img;
   delete [] avx512_img;
